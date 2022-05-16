@@ -87,7 +87,7 @@ END;$$;
 SELECT metadataPorIdProntuario(7);
 ```
 
-#### CRIAÇÃO DE TABELA COM OS DADOS DE MÉDICO, REALIZADO A PARTIR DA ESPECIALIZAÇÃO
+##### CRIAÇÃO DE TABELA COM OS DADOS DE MÉDICO, REALIZADO A PARTIR DA ESPECIALIZAÇÃO
 
 ```sql
 CREATE OR REPLACE FUNCTION medicosPorEspecializacao(especializacaoNome VARCHAR)
@@ -115,16 +115,6 @@ END;$$;
 SELECT medicosPorEspecializacao('Gastroenterologista');
 ```
 
-```sql
-CREATE VIEW vw_pacientesMedicos
-AS SELECT medico.nome, paciente.nome
-FROM medico
-INNER JOIN pacientes
-ON (AS SELECT atendimento.id_medico AS medico, atendimento.id_paciente AS paciente
-FROM medico
-INNER JOIN pacientes
-WHERE atendimento.id_medico = atendimento.id_paciente)
-```
 
 ### CRIAR 3 PROCEDIMENTOS
 
@@ -132,7 +122,7 @@ WHERE atendimento.id_medico = atendimento.id_paciente)
 - [x] recebe argumentos
 - [x] não recebe argumentos
 
-#### INSERIR NOVA PRESCRIÇÃO NA TABELA
+##### INSERIR NOVA PRESCRIÇÃO NA TABELA
 
 ```sql
     CREATE OR REPLACE PROCEDURE "inserir_prescricao"("medicamento" text, "administracao" text, "id_prontuario" int4, "id_medico" int4, "data_prescricao" date)
@@ -142,7 +132,7 @@ WHERE atendimento.id_medico = atendimento.id_paciente)
     END;$$
 ```
 
-#### DELETAR UMA PRESCRIÇÃO
+##### DELETAR UMA PRESCRIÇÃO
 
 ```sql
     CREATE OR REPLACE PROCEDURE "deletar_prescricao"("medicamento" text, "id_prontuario" int4, "id_medico" int4, "data_prescricao" date)
@@ -152,7 +142,7 @@ WHERE atendimento.id_medico = atendimento.id_paciente)
     END;$$
 ```
 
-#### INSERIR RELATÓRIO FINANCEIRO DO DIA
+##### INSERIR RELATÓRIO FINANCEIRO DO DIA
 
 ```sql
 CREATE OR REPLACE PROCEDURE "public"."relatorio_financeiro_dia"()
@@ -170,57 +160,95 @@ END;$$
 ##### VISUALIZAR OS ATENDIMENTOS REALIZADOS NO CONSULTÓRIO POR ORDEM DECRESCENTE DE DATA
 
 ```sql
-CREATE "vw_atendimentos_realizados" AS SELECT paciente.nome AS "Paciente",
-    medico.nome AS "Médico",
-    atendimento.data_atendimento AS "Data do Atendimento",
-    atendimento.valor AS "Valor"
-   FROM atendimento
-     JOIN paciente ON atendimento.id_paciente = paciente.id
-     JOIN medico ON atendimento.id_medico = medico.id
-	 WHERE atendimento.status_atendimento = 'Realizado'
-  ORDER BY atendimento.data_atendimento DESC;
+CREATE "vw_atendimentos_realizados" AS
+SELECT paciente.nome AS "Paciente",
+  medico.nome AS "Médico",
+  atendimento.data_atendimento AS "Data do Atendimento",
+  atendimento.valor AS "Valor"
+FROM atendimento
+  JOIN paciente ON atendimento.id_paciente = paciente.id
+  JOIN medico ON atendimento.id_medico = medico.id
+WHERE atendimento.status_atendimento = 'Realizado'
+ORDER BY atendimento.data_atendimento DESC;
 ```
 
 ##### VISUALIZAR OS ATENDIMENTOS AGENDADOS NO CONSULTÓRIO POR ORDEM DECRESCENTE DE DATA
 
 ```sql
 CREATE VIEW "vw_atendimentos_agendados" AS
- SELECT paciente.nome AS "Paciente",
-    medico.nome AS "Médico",
-    atendimento.data_atendimento AS "Data do Atendimento",
-    atendimento.valor AS "Valor"
-   FROM atendimento
-     JOIN paciente ON atendimento.id_paciente = paciente.id
-     JOIN medico ON atendimento.id_medico = medico.id
-	 WHERE atendimento.status_atendimento = 'Agendado'
-  ORDER BY atendimento.data_atendimento DESC
+SELECT paciente.nome AS "Paciente",
+  medico.nome AS "Médico",
+  atendimento.data_atendimento AS "Data do Atendimento",
+  atendimento.valor AS "Valor"
+FROM atendimento
+JOIN paciente ON atendimento.id_paciente = paciente.id
+JOIN medico ON atendimento.id_medico = medico.id
+WHERE atendimento.status_atendimento = 'Agendado'
+ORDER BY atendimento.data_atendimento DESC
 ```
 
 ##### VISUALIZAR OS DADOS PROFISSIONAIS E DE CONTATO DOS MÉDICOS QUE ATENDEM NO CONSULTÓRIO
 
 ```sql
-CREATE VIEW "vw_dados_medicos" AS  SELECT medico.nome AS "Nome",
-    especializacao.nome AS "Especialização",
-    medico.registro AS "Registro",
-    medico.celular AS "Celular",
-    medico.email AS "E-mail"
-FROM medico JOIN especializacao ON medico.id_especializacao = especializacao."id";
+CREATE VIEW "vw_dados_medicos" AS
+SELECT
+  medico.nome AS "Nome",
+  especializacao.nome AS "Especialização",
+  medico.registro AS "Registro",
+  medico.celular AS "Celular",
+  medico.email AS "E-mail"
+FROM medico
+JOIN especializacao ON medico.id_especializacao = especializacao."id";
 ORDER BY medico.nome ASC
 ```
 
 ##### VISUALIZAR OS DADOS DE CONTATO DOS PACIENTES CADASTRADOS NO CONSULTÓRIO
 
 ```sql
-CREATE VIEW "public"."dados_pacientes" AS  SELECT paciente.nome AS "Nome",
-    paciente.celular AS "Celular",
-    paciente.email AS "E-mail"
+CREATE VIEW "public"."dados_pacientes" AS
+SELECT
+  paciente.nome AS "Nome",
+  paciente.celular AS "Celular",
+  paciente.email AS "E-mail"
 FROM paciente
 ORDER BY paciente.nome ASC;
 ```
-
 ##### VISUALIZAR O NÚMERO DOS PRONTUÁRIOS DOS PACIENTES CADASTRADOS NO CONSULTÓRIO
+
 ```sql
 CREATE VIEW "public"."Untitled" AS SELECT paciente.nome AS "Paciente", prontuario."id" AS "Número do Prontuário"
 FROM paciente
 JOIN prontuario ON paciente."id" = prontuario."id";
+```
+
+### EXTRAS
+
+##### FECHAR ATENDIMENTO (ALTERANDO O STATUS DE ATENDIMENTO PARA REALIZADO E INSERINDO A PRESCRIÇÃO)
+
+```sql
+CREATE OR REPLACE PROCEDURE fecharAtendimento(idAtendimento INTEGER, prescricao VARCHAR)
+	LANGUAGE PLPGSQL AS $$
+    DECLARE
+      idProntuario integer;
+      statusAtend VARCHAR;
+    BEGIN
+    	SELECT status_atendimento FROM atendimento WHERE id = $1 INTO statusAtend;
+        IF statusAtend = 'Agendado' THEN
+            UPDATE atendimento
+            SET status_atendimento = 'Realizado'
+            WHERE id = $1;
+
+            SELECT p.id
+            FROM prontuario p
+            WHERE p.id = (SELECT a.id_paciente FROM atendimento a WHERE a.id = $1) INTO idProntuario;
+
+            INSERT INTO prescricao VALUES ($2, idProntuario, CURRENT_DATE);
+        ELSE
+            RAISE EXCEPTION 'Erro ao fechar atendimento!';
+        END IF;
+    END;$$;
+
+call fecharAtendimento(4, 'Ciprofloxacino 500mg . . . . . . . . . . 14 comprimidos.');
+SELECT * FROM atendimento WHERE id = 4;
+SELECT * FROM prescricao p WHERE p.data = CURRENT_DATE;
 ```
