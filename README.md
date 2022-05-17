@@ -123,17 +123,19 @@ CREATE OR REPLACE FUNCTION buscador_medicos()
 RETURNS void
 LANGUAGE plpgsql AS $$
   DECLARE f record;
-  BEGIN FOR f IN
-    SELECT
-      vw.nome, vw."Especialização", vw.registro
-    FROM
-      vw_dados_medicos vw
-    ORDER BY
-      vw.nome
-  	LOOP
-      RAISE NOTICE '% - % - %', f.nome, f."Especialização", f.registro;
-	END LOOP;
-END; $$;
+  BEGIN
+    FOR f IN
+      SELECT
+        vw.nome, vw."Especialização", vw.registro
+      FROM
+        vw_dados_medicos vw
+      ORDER BY
+        vw.nome
+      LOOP
+        RAISE NOTICE '% - % - %', f.nome, f."Especialização", f.registro;
+    END LOOP;
+  END;
+$$;
 ```
 
 ### CRIAR 3 PROCEDIMENTOS
