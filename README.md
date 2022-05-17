@@ -9,22 +9,6 @@
 - [x] outra deve receber argumentos
 - [x] outra não precisa receber argumentos
 
-##### SELEÇÃO DOS ATENDIMENTOS REALIZADOS NO DIA ATUAL DA CONSULTA
-
-```sql
-CREATE OR REPLACE FUNCTION qnt_atendimentos_hoje()
-RETURNS integer
-LANGUAGE PLPGSQL AS $$
-DECLARE
-   atendimentos integer;
-BEGIN
-	SELECT COUNT(*) AS QNT_ATENDIMENTOS FROM atendimento WHERE data_atendimento = CURRENT_DATE INTO atendimentos;
-RETURN atendimentos;
-END;$$;
-
-SELECT qnt_atendimentos_hoje();
-```
-
 ##### CRIAÇÃO DE METADATA (JSON) COM OS DADOS DO PACIENTE A PARTIR DO ID DO PRONTUÁRIO
 
 ```sql
@@ -84,7 +68,8 @@ BEGIN
     ) AS metadata_object INTO metadata;
 RETURN metadata;
 END;$$;
-
+```
+```sql
 SELECT metadataPorIdProntuario(7);
 ```
 
@@ -112,7 +97,8 @@ BEGIN
 	WHERE
     esp.nome = $1;
 END;$$;
-
+```
+```sql
 SELECT medicosPorEspecializacao('Gastroenterologista');
 ```
 
@@ -137,6 +123,69 @@ LANGUAGE plpgsql AS $$
   END;
 $$;
 ```
+```sql
+SELECT buscador_medicos();
+```
+
+##### FECHANDO UM ATENDIMENTO COM:
+ - VERIFICAÇÃO SE O STATUS DE ATEND. ESTÁ AGENDADO
+ - ALTERANDO O STATUS DE ATENDIMENTO PARA REALIZADO
+ - VERIFICAÇÃO SE PRONTUARIO EXISTE E
+ - INSERINDO A PRESCRIÇÃO
+
+```sql
+CREATE OR REPLACE PROCEDURE fechar_atendimento(idAtendimento INTEGER, medicamento VARCHAR, administrar VARCHAR)
+LANGUAGE PLPGSQL AS $$
+    DECLARE
+      idProntuario integer;
+      statusAtend VARCHAR;
+      idPaciente integer;
+      idMedico integer;
+    BEGIN
+    	SELECT status_atendimento FROM atendimento WHERE id = $1 INTO statusAtend;
+        IF statusAtend = 'Agendado' THEN
+            UPDATE atendimento SET status_atendimento = 'Realizado', data_atendimento = NOW() WHERE id = $1;
+            
+            SELECT a.id_paciente FROM atendimento a WHERE a.id = $1 INTO idPaciente;
+            
+            IF EXISTS (SELECT p.id FROM prontuario p WHERE p.id = idPaciente) THEN
+            	SELECT p.id FROM prontuario p WHERE p.id = idPaciente INTO idProntuario;
+			ELSE
+            	INSERT INTO prontuario VALUES(default, NOW(), idPaciente);
+                SELECT p.id FROM prontuario p WHERE p.id = idPaciente INTO idProntuario;
+            END IF;
+            
+            SELECT a.id_medico FROM atendimento a WHERE a.id = $1 INTO idMedico;
+            
+            INSERT INTO prescricao VALUES (DEFAULT, medicamento, administrar, idProntuario, idMedico, NOW());
+        ELSE
+            RAISE EXCEPTION 'Erro ao fechar atendimento!';
+        END IF;
+	END;
+$$;
+```
+```sql
+CALL fechar_atendimento(4, 'Ciprofloxacino 500mg',  'Tomar 14 comprimidos');
+```
+
+##### SELEÇÃO DOS ATENDIMENTOS REALIZADOS NO DIA ATUAL DA CONSULTA
+
+```sql
+CREATE OR REPLACE FUNCTION qnt_atendimentos_hoje()
+RETURNS integer
+LANGUAGE PLPGSQL AS $$
+  DECLARE atendimentos integer;
+  BEGIN
+    SELECT COUNT(*)
+    FROM atendimento
+    WHERE data_atendimento >= CURRENT_DATE INTO atendimentos;
+  RETURN atendimentos;
+  END;
+$$;
+```
+```sql
+SELECT qnt_atendimentos_hoje() AS QNT_ATENDIMENTOS;
+```
 
 ### CRIAR 3 PROCEDIMENTOS
 
@@ -147,34 +196,49 @@ $$;
 ##### INSERIR NOVA PRESCRIÇÃO NA TABELA
 
 ```sql
-    CREATE OR REPLACE PROCEDURE "inserir_prescricao"("medicamento" text, "administracao" text, "id_prontuario" int4, "id_medico" int4, "data_prescricao" date)
-    LANGUAGE PLPGSQL AS $$
-    BEGIN
-        INSERT INTO prescricao VALUES (DEFAULT, medicamento, administracao, id_prontuario, id_medico, data_prescricao)
-    END;$$
+CREATE OR REPLACE PROCEDURE inserir_prescricao(medicamento TEXT, administracao TEXT, id_prontuario INTEGER, id_medico INTEGER, data_prescricao TIMESTAMP)
+LANGUAGE PLPGSQL AS $$
+	BEGIN
+		INSERT INTO prescricao VALUES (DEFAULT, medicamento, administracao, id_prontuario, id_medico, data_prescricao);
+	END;
+$$;
+```
+```sql
+CALL inserir_prescricao('ESSA PRESCRICAO', 'SERA DELETADA', 1, 1, CURRENT_DATE);
 ```
 
 ##### DELETAR UMA PRESCRIÇÃO
 
 ```sql
-    CREATE OR REPLACE PROCEDURE "deletar_prescricao"("medicamento" text, "id_prontuario" int4, "id_medico" int4, "data_prescricao" date)
-    LANGUAGE PLPGSQL AS $$
-    BEGIN
-        DELETE FROM prescricao WHERE prescricao."medicamento"=medicamento AND prescricao."id_prontuario"=id_prontuario AND prescricao."id_medico"=id_medico AND prescricao."data"=data_prescricao;
-    END;$$
+CREATE OR REPLACE PROCEDURE deletar_prescricao(idPrescricao INTEGER)
+LANGUAGE PLPGSQL AS $$
+  BEGIN
+    DELETE FROM prescricao WHERE prescricao.id = idPrescricao;
+  END;
+$$;
+```
+
+```sql
+SELECT MAX(id) FROM prescricao; -- number id
+```
+```sql
+CALL deletar_prescricao(n);
 ```
 
 ##### INSERIR RELATÓRIO FINANCEIRO DO DIA
 
 ```sql
-CREATE OR REPLACE PROCEDURE "public"."relatorio_financeiro_dia"()
+CREATE OR REPLACE PROCEDURE relatorio_financeiro_dia()
 LANGUAGE PLPGSQL AS $$
-DECLARE
-total integer;
-BEGIN
-	SELECT SUM(valor) AS total_arrecadado FROM atendimento WHERE data_atendimento = CURRENT_DATE INTO total;
-	INSERT INTO financeiro_consultorio_dia VALUES (CURRENT_DATE, total);
-END;$$
+  DECLARE total integer;
+  BEGIN
+      SELECT SUM(valor) AS total_arrecadado FROM atendimento WHERE data_atendimento >= CURRENT_DATE INTO total;
+      INSERT INTO financeiro_consultorio_dia VALUES (NOW(), total);
+  END;
+$$;
+```
+```sql
+CALL relatorio_financeiro_dia();
 ```
 
 ### CRIAR 5 VIEWS
@@ -193,6 +257,9 @@ FROM atendimento
 WHERE atendimento.status_atendimento = 'Realizado'
 ORDER BY atendimento.data_atendimento DESC;
 ```
+```sql
+SELECT * FROM vw_atendimentos_realizados;
+```
 
 ##### VISUALIZAR OS ATENDIMENTOS AGENDADOS NO CONSULTÓRIO POR ORDEM DECRESCENTE DE DATA
 
@@ -208,6 +275,10 @@ JOIN medico ON atendimento.id_medico = medico.id
 WHERE atendimento.status_atendimento = 'Agendado'
 ORDER BY atendimento.data_atendimento DESC
 ```
+```sql
+SELECT * FROM vw_atendimentos_agendados;
+```
+
 
 ##### VISUALIZAR OS DADOS PROFISSIONAIS E DE CONTATO DOS MÉDICOS QUE ATENDEM NO CONSULTÓRIO
 
@@ -223,11 +294,13 @@ FROM medico
 JOIN especializacao ON medico.id_especializacao = especializacao."id";
 ORDER BY medico.nome ASC
 ```
-
+```sql
+SELECT * FROM vw_dados_medicos;
+```
 ##### VISUALIZAR OS DADOS DE CONTATO DOS PACIENTES CADASTRADOS NO CONSULTÓRIO
 
 ```sql
-CREATE VIEW "public"."dados_pacientes" AS
+CREATE VIEW "dados_pacientes" AS
 SELECT
   paciente.nome AS "Nome",
   paciente.celular AS "Celular",
@@ -235,42 +308,17 @@ SELECT
 FROM paciente
 ORDER BY paciente.nome ASC;
 ```
-##### VISUALIZAR O NÚMERO DOS PRONTUÁRIOS DOS PACIENTES CADASTRADOS NO CONSULTÓRIO
+```sql
+SELECT * FROM dados_pacientes;
+```
+
+##### RELATÓRIO COM O NOME E NÚMERO DOS PRONTUÁRIOS DOS PACIENTES CADASTRADOS NO CONSULTÓRIO
 
 ```sql
-CREATE VIEW "public"."Untitled" AS SELECT paciente.nome AS "Paciente", prontuario."id" AS "Número do Prontuário"
+CREATE VIEW "relatorio_pacientes" AS SELECT paciente.nome AS "Paciente", prontuario."id" AS "Número do Prontuário"
 FROM paciente
 JOIN prontuario ON paciente."id" = prontuario."id";
 ```
-
-### EXTRAS
-
-##### FECHAR ATENDIMENTO (ALTERANDO O STATUS DE ATENDIMENTO PARA REALIZADO E INSERINDO A PRESCRIÇÃO)
-
 ```sql
-CREATE OR REPLACE PROCEDURE fecharAtendimento(idAtendimento INTEGER, prescricao VARCHAR)
-	LANGUAGE PLPGSQL AS $$
-    DECLARE
-      idProntuario integer;
-      statusAtend VARCHAR;
-    BEGIN
-    	SELECT status_atendimento FROM atendimento WHERE id = $1 INTO statusAtend;
-        IF statusAtend = 'Agendado' THEN
-            UPDATE atendimento
-            SET status_atendimento = 'Realizado'
-            WHERE id = $1;
-
-            SELECT p.id
-            FROM prontuario p
-            WHERE p.id = (SELECT a.id_paciente FROM atendimento a WHERE a.id = $1) INTO idProntuario;
-
-            INSERT INTO prescricao VALUES ($2, idProntuario, CURRENT_DATE);
-        ELSE
-            RAISE EXCEPTION 'Erro ao fechar atendimento!';
-        END IF;
-    END;$$;
-
-call fecharAtendimento(4, 'Ciprofloxacino 500mg . . . . . . . . . . 14 comprimidos.');
-SELECT * FROM atendimento WHERE id = 4;
-SELECT * FROM prescricao p WHERE p.data = CURRENT_DATE;
+SELECT * FROM relatorio_pacientes;
 ```

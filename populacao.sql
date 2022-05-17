@@ -11,7 +11,7 @@
 -- DROP PROCEDURE inserir_prescricao;
 -- DROP PROCEDURE deletar_prescricao;
 -- DROP PROCEDURE fecharatendimento;
--- DROP PROCEDURE financeiro_diario;
+-- DROP PROCEDURE relatorio_financeiro_dia;
 -- DROP FUNCTION medicosporespecializacao;
 -- DROP FUNCTION metadataporidprontuario;
 -- DROP FUNCTION qnt_atendimentos_hoje;
@@ -190,6 +190,7 @@ VALUES
 -- Table structure for table atendimento
 --
 CREATE TABLE atendimento (
+  id SERIAL NOT NULL,
   id_medico integer NOT NULL,
   id_paciente integer NOT NULL,
   data_atendimento TIMESTAMP NOT NULL,
@@ -206,17 +207,17 @@ CREATE TABLE atendimento (
 INSERT INTO
   atendimento
 VALUES
-  (1,1,'2022-01-25 03:34:05','2022-01-02 00:00:00','Realizado',150.00  ),
-  (1,13,'2022-01-25 03:39:38','2022-01-25 00:00:00','Agendado',799.99  ),
-  (1,17,'2022-01-25 03:39:23','2022-01-25 00:00:00','Agendado',399.99  ),
-  (1,18,'2022-01-25 03:39:29','2022-01-25 00:00:00','Agendado',399.99  ),
-  (2,2,'2022-01-25 03:36:47','2022-01-04 00:00:00','Realizado',250.00  ),
-  (2,2,'2022-01-25 03:37:25','2022-01-04 00:00:00','Agendado',250.00  ),
-  (2,16,'2022-01-25 03:39:49','2022-01-25 00:00:00','Agendado',199.99  ),
-  (3,3,'2022-01-25 03:37:52','2022-01-25 00:00:00','Agendado',250.00  ),
-  (4,4,'2022-01-25 03:38:07','2022-01-25 00:00:00','Agendado',300.00  ),
-  (4,6,'2022-01-25 03:38:25','2022-01-25 00:00:00','Agendado',399.99  ),
-  (4,12,'2022-01-25 03:39:03','2022-01-25 00:00:00','Cancelado',399.99  );
+  (DEFAULT, 1,1,'2022-01-25 03:34:05','2022-01-02 00:00:00','Realizado',150.00  ),
+  (DEFAULT, 1,13,'2022-01-25 03:39:38','2022-01-25 00:00:00','Agendado',799.99  ),
+  (DEFAULT, 1,17,'2022-01-25 03:39:23','2022-01-25 00:00:00','Agendado',399.99  ),
+  (DEFAULT, 1,18,'2022-01-25 03:39:29','2022-01-25 00:00:00','Agendado',399.99  ),
+  (DEFAULT, 2,2,'2022-01-25 03:36:47','2022-01-04 00:00:00','Realizado',250.00  ),
+  (DEFAULT, 2,2,'2022-01-25 03:37:25','2022-01-04 00:00:00','Agendado',250.00  ),
+  (DEFAULT, 2,16,'2022-01-25 03:39:49','2022-01-25 00:00:00','Agendado',199.99  ),
+  (DEFAULT, 3,3,'2022-01-25 03:37:52','2022-01-25 00:00:00','Agendado',250.00  ),
+  (DEFAULT, 4,4,'2022-01-25 03:38:07','2022-01-25 00:00:00','Agendado',300.00  ),
+  (DEFAULT, 4,6,'2022-01-25 03:38:25','2022-01-25 00:00:00','Agendado',399.99  ),
+  (DEFAULT, 4,12,'2022-01-25 03:39:03','2022-01-25 00:00:00','Cancelado',399.99  );
 --
 -- Table structure for table atendimento
 --
@@ -238,13 +239,10 @@ RETURNS integer
 LANGUAGE PLPGSQL AS $$
   DECLARE atendimentos integer;
   BEGIN
-    SELECT
-      COUNT(*) AS QNT_ATENDIMENTOS
-    FROM
-      atendimento
-    WHERE
-      data_atendimento = CURRENT_DATE INTO atendimentos;
-    RETURN atendimentos;
+    SELECT COUNT(*) AS QNT_ATENDIMENTOS
+    FROM atendimento
+    WHERE data_atendimento >= CURRENT_DATE INTO atendimentos;
+  RETURN atendimentos;
   END;
 $$;
 
@@ -355,7 +353,7 @@ $$;
 
 -- INSERIR RELATÓRIO FINANCEIRO DO DIA
 
-CREATE OR REPLACE PROCEDURE financeiro_diario()
+CREATE OR REPLACE PROCEDURE relatorio_financeiro_dia()
 LANGUAGE PLPGSQL AS $$
   DECLARE total integer;
   BEGIN
@@ -432,27 +430,36 @@ CREATE VIEW qnt_prontuario AS
 
 -- FECHAR ATENDIMENTO (ALTERANDO O STATUS DE ATENDIMENTO PARA REALIZADO E INSERINDO A PRESCRIÇÃO)
 
-CREATE OR REPLACE PROCEDURE fecharAtendimento(idAtendimento INTEGER, prescricao VARCHAR)
+CREATE OR REPLACE PROCEDURE fechar_atendimento(idAtendimento INTEGER, medicamento VARCHAR, administrar VARCHAR)
 LANGUAGE PLPGSQL AS $$
-    DECLARE
-      idProntuario integer;
-      statusAtend VARCHAR;
-    BEGIN
-    	SELECT status_atendimento FROM atendimento WHERE id = $1 INTO statusAtend;
-        IF statusAtend = "Agendado" THEN
-            UPDATE atendimento
-            SET status_atendimento = "Realizado"
-            WHERE id = $1;
-
-            SELECT p.id
-            FROM prontuario p
-            WHERE p.id = (SELECT a.id_paciente FROM atendimento a WHERE a.id = $1) INTO idProntuario;
-
-            INSERT INTO prescricao VALUES ($2, idProntuario, CURRENT_DATE);
-        ELSE
-            RAISE EXCEPTION 'Erro ao fechar atendimento!';
+DECLARE
+  idProntuario integer;
+  statusAtend VARCHAR;
+  idPaciente integer;
+  idMedico integer;
+BEGIN
+  SELECT status_atendimento FROM atendimento WHERE id = $1 INTO statusAtend;
+    IF statusAtend = 'Agendado' THEN
+        UPDATE atendimento SET status_atendimento = 'Realizado' WHERE id = $1;
+        
+        SELECT a.id_paciente FROM atendimento a WHERE a.id = $1 INTO idPaciente;
+        
+        IF EXISTS (SELECT p.id FROM prontuario p WHERE p.id = idPaciente) THEN
+          SELECT p.id FROM prontuario p WHERE p.id = idPaciente INTO idProntuario;
+  ELSE
+          INSERT INTO prontuario VALUES(default, NOW(), idPaciente);
+            SELECT p.id FROM prontuario p WHERE p.id = idPaciente INTO idProntuario;
         END IF;
+        
+        SELECT a.id_medico FROM atendimento a WHERE a.id = $1 INTO idMedico;
+        
+        INSERT INTO prescricao VALUES (DEFAULT, medicamento, administrar, idProntuario, idMedico, NOW());
+    ELSE
+        RAISE EXCEPTION 'Erro ao fechar atendimento!';
+    END IF;
 END;
+
+CALL fechar_atendimento(4, 'Ciprofloxacino 500mg',  'Tomar 14 comprimidos');
 $$;
 
 -- LISTAGEM DOS DADOS DOS MÉDICOS A PARTIR DA VIEW
